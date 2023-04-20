@@ -55,9 +55,8 @@ const (
 
 // PackageVariantSpec defines the desired state of PackageVariant
 type PackageVariantSpec struct {
-	Upstream   *Upstream        `json:"upstream,omitempty"`
-	Downstream *Downstream      `json:"downstream,omitempty"`
-	// TODO at this point I am not 100% sure if we need DeepCopy() on this, now that it is part of Kubernetes object directly. I would assume currently DeepCopy is not being generated, because the Functions struct is not from this package and the kptFile pkg so far had no need as it was in no kubernetes object directly
+	Upstream   *Upstream            `json:"upstream,omitempty"`
+	Downstream *Downstream          `json:"downstream,omitempty"`
 	Mutators   []kptfilev1.Function `json:"mutators,omitempty"`
 
 	AdoptionPolicy AdoptionPolicy `json:"adoptionPolicy,omitempty"`
