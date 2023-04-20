@@ -21,9 +21,12 @@ import (
 	"strconv"
 	"strings"
 
+	internalpkg "github.com/GoogleContainerTools/kpt/internal/pkg"
+	kptfilev1 "github.com/GoogleContainerTools/kpt/pkg/api/kptfile/v1"
 	porchapi "github.com/GoogleContainerTools/kpt/porch/api/porch/v1alpha1"
 	configapi "github.com/GoogleContainerTools/kpt/porch/api/porchconfig/v1alpha1"
 	api "github.com/GoogleContainerTools/kpt/porch/controllers/packagevariants/api/v1alpha1"
+	kyaml "sigs.k8s.io/kustomize/kyaml/yaml"
 
 	"github.com/GoogleContainerTools/kpt-functions-sdk/go/fn"
 
@@ -703,6 +706,10 @@ func (r *PackageVariantReconciler) applyMutations(ctx context.Context,
 		return err
 	}
 
+	if err := ensureKRMFunctions(pv, &prr); err != nil {
+		return err
+	}
+
 	// Save the updated PackageRevisionResources
 	if err := r.Update(ctx, &prr); err != nil {
 		return err
@@ -776,4 +783,33 @@ func getFileKubeObject(prr *porchapi.PackageRevisionResources, file, kind, name 
 	}
 
 	return ko, nil
+func ensureKRMFunctions(pv *api.PackageVariant,
+	prr *porchapi.PackageRevisionResources) error {
+
+	if len(pv.Spec.Mutators) == 0 {
+		return nil
+	}
+
+	if _, ok := prr.Spec.Resources[kptfilev1.KptFileName]; !ok {
+		return fmt.Errorf("%s not found in PackageRevisionResources '%s/%s'", kptfilev1.KptFileName, prr.Namespace, prr.Name)
+	}
+
+	kptfile, err := internalpkg.DecodeKptfile(strings.NewReader(prr.Spec.Resources[kptfilev1.KptFileName]))
+	if err != nil {
+		return fmt.Errorf("failed to parse %s of PackageRevisionResources '%s/%s'", kptfilev1.KptFileName, prr.Namespace, prr.Name)
+	}
+
+	// TODO q: why are PackageVariant mutators being run before the ones in the kptfile?
+	// Wouldn't that make it harder for the vendors of the the original package, because their mutators now need
+	// to account for the possibility of mutators from end-users?
+	kptfile.Pipeline.Mutators = append(pv.Spec.Mutators, kptfile.Pipeline.Mutators...)
+
+	// use kyaml here to preserve the original order of keys in kptfile
+	newKptfile, err := kyaml.MarshalWithOptions(kptfile, &kyaml.EncoderOptions{SeqIndent: kyaml.WideSequenceStyle})
+	if err != nil {
+		return fmt.Errorf("failed to marshal %s of PackageRevisionResources '%s/%s': %v", kptfilev1.KptFileName, prr.Namespace, prr.Name, err)
+	}
+	prr.Spec.Resources[kptfilev1.KptFileName] = string(newKptfile)
+
+	return nil
 }

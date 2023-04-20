@@ -1098,3 +1098,131 @@ spec:
 		})
 	}
 }
+
+func TestEnsureKRMFunctions(t *testing.T) {
+	pvBase := `apiVersion: config.porch.kpt.dev
+kind: PackageVariant
+metadata:
+  name: my-pv
+  uid: pv-uid
+spec:
+  upstream:
+    repo: blueprints
+    package: foo
+    revision: v1
+  downstream:
+    repo: deployments
+    package: bar
+  mutators:
+`
+	prrBase := `apiVersion: porch.kpt.dev/v1alpha1
+kind: PackageRevisionResources
+metadata:
+  name: prr
+  namespace: default
+spec:
+  packageName: nephio-system
+  repository: nephio-packages
+  resources:
+    Kptfile: |
+      apiVersion: kpt.dev/v1
+      kind: Kptfile
+      metadata:
+        name: prr
+        annotations:
+          config.kubernetes.io/local-config: "true"
+      info:
+        description: Example
+      pipeline:
+        mutators:
+`
+
+	testCases := map[string]struct {
+		initialMutators string
+		pvMutators      string
+		expectedErr     string
+		expectedPrr     string
+	}{
+		"add one with existing": {
+			initialMutators: `        - image: gcr.io/kpt-fn/set-labels:v0.1
+          configMap:
+            app: foo`,
+			pvMutators: `      - image: gcr.io/kpt-fn/set-namespace:v0.1
+        configMap:
+          namespace: my-ns`,
+			expectedErr: "",
+			expectedPrr: prrBase + `          - image: gcr.io/kpt-fn/set-namespace:v0.1
+            configMap:
+              namespace: my-ns
+          - image: gcr.io/kpt-fn/set-labels:v0.1
+            configMap:
+              app: foo
+`,
+		},
+		"add one with none existing": {
+			initialMutators: "",
+			pvMutators: `      - image: gcr.io/kpt-fn/set-namespace:v0.1
+        configMap:
+          namespace: my-ns`,
+			expectedErr: "",
+			expectedPrr: prrBase + `          - image: gcr.io/kpt-fn/set-namespace:v0.1
+            configMap:
+              namespace: my-ns
+`,
+		},
+		// TODO because now we don't call yaml.Marshal on the kptfile, expectedPrr is slightly different in terms of spacing
+		// We should think about whether we need a custom unmarshaller inside PackageRevisionResources, that ensures
+		// the kpt file is always formatted the same way before being added into the PackageRevisionResources
+		"add none with existing": {
+			initialMutators: `        - image: gcr.io/kpt-fn/set-labels:v0.1
+          configMap:
+            app: foo`,
+			pvMutators:  "",
+			expectedErr: "",
+			expectedPrr: prrBase + `        - image: gcr.io/kpt-fn/set-labels:v0.1
+          configMap:
+            app: foo`,
+		},
+		"add two with existing": {
+			initialMutators: `        - image: gcr.io/kpt-fn/set-labels:v0.1
+          configMap:
+            app: foo`,
+			pvMutators: `      - image: gcr.io/kpt-fn/set-namespace:v0.1
+        configMap:
+          namespace: my-ns
+      - image: gcr.io/kpt-fn/set-annotation:v0.1
+        configMap:
+          namespace: my-ns`,
+			expectedErr: "",
+			expectedPrr: prrBase + `          - image: gcr.io/kpt-fn/set-namespace:v0.1
+            configMap:
+              namespace: my-ns
+          - image: gcr.io/kpt-fn/set-annotation:v0.1
+            configMap:
+              namespace: my-ns
+          - image: gcr.io/kpt-fn/set-labels:v0.1
+            configMap:
+              app: foo
+`},
+	}
+
+	for tn, tc := range testCases {
+		t.Run(tn, func(t *testing.T) {
+			var prr porchapi.PackageRevisionResources
+			require.NoError(t, yaml.Unmarshal([]byte(prrBase+tc.initialMutators), &prr))
+			var pv api.PackageVariant
+			require.NoError(t, yaml.Unmarshal([]byte(pvBase+tc.pvMutators), &pv))
+
+			actualErr := ensureKRMFunctions(&pv, &prr)
+			if tc.expectedErr == "" {
+				require.NoError(t, actualErr)
+			} else {
+				require.EqualError(t, actualErr, tc.expectedErr)
+			}
+			var expectedPRR porchapi.PackageRevisionResources
+			require.NoError(t, yaml.Unmarshal([]byte(tc.expectedPrr), &expectedPRR))
+
+			require.Equal(t, expectedPRR, prr)
+		})
+	}
+}
