@@ -15,6 +15,7 @@
 // Package defines Kptfile schema.
 // Version: v1
 // swagger:meta
+// +kubebuilder:object:generate=true
 package v1
 
 import (
@@ -23,6 +24,8 @@ import (
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	"sigs.k8s.io/kustomize/kyaml/yaml"
 )
+
+//go:generate go run sigs.k8s.io/controller-tools/cmd/controller-gen@v0.8.0 object object:headerFile="../../../../porch/scripts/boilerplate.go.txt"
 
 const (
 	KptFileName = "Kptfile"
