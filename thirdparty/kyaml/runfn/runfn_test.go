@@ -16,6 +16,7 @@ import (
 	"github.com/stretchr/testify/assert"
 
 	"sigs.k8s.io/kustomize/kyaml/copyutil"
+	"sigs.k8s.io/kustomize/kyaml/filesys"
 	"sigs.k8s.io/kustomize/kyaml/fn/runtime/runtimeutil"
 	"sigs.k8s.io/kustomize/kyaml/kio"
 	"sigs.k8s.io/kustomize/kyaml/kio/filters"
@@ -415,6 +416,7 @@ func TestCmd_Execute_setInput(t *testing.T) {
 // setupTest initializes a temp test directory containing test data
 func setupTest(t *testing.T) string {
 	dir, err := os.MkdirTemp("", "kustomize-kyaml-test")
+	fs := filesys.MakeFsOnDisk()
 	if !assert.NoError(t, err) {
 		t.FailNow()
 	}
@@ -427,7 +429,7 @@ func setupTest(t *testing.T) string {
 	if !assert.NoError(t, err) {
 		t.FailNow()
 	}
-	if !assert.NoError(t, copyutil.CopyDir(ds, dir)) {
+	if !assert.NoError(t, copyutil.CopyDir(fs, ds, dir)) {
 		t.FailNow()
 	}
 	if !assert.NoError(t, os.Chdir(filepath.Dir(dir))) {
