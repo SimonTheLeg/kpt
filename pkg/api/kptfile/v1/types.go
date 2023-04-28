@@ -15,7 +15,6 @@
 // Package defines Kptfile schema.
 // Version: v1
 // swagger:meta
-// +kubebuilder:object:generate=true
 package v1
 
 import (
