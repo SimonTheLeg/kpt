@@ -1099,8 +1099,10 @@ spec:
 	}
 }
 
+// TODO add handling of base kptfile with comments
 func TestEnsureKRMFunctions(t *testing.T) {
-	pvBase := `apiVersion: config.porch.kpt.dev
+	pvBase := `
+apiVersion: config.porch.kpt.dev
 kind: PackageVariant
 metadata:
   name: my-pv
@@ -1114,8 +1116,10 @@ spec:
     repo: deployments
     package: bar
   mutators:
-`
-	prrBase := `apiVersion: porch.kpt.dev/v1alpha1
+`[1:]
+
+	prrBase := `
+apiVersion: porch.kpt.dev/v1alpha1
 kind: PackageRevisionResources
 metadata:
   name: prr
@@ -1135,7 +1139,7 @@ spec:
         description: Example
       pipeline:
         mutators:
-`
+`[1:]
 
 	testCases := map[string]struct {
 		initialMutators string
@@ -1144,66 +1148,93 @@ spec:
 		expectedPrr     string
 	}{
 		"add one with existing": {
-			initialMutators: `        - image: gcr.io/kpt-fn/set-labels:v0.1
+			initialMutators: `
+        - image: gcr.io/kpt-fn/set-labels:v0.1
           configMap:
-            app: foo`,
-			pvMutators: `      - image: gcr.io/kpt-fn/set-namespace:v0.1
+            app: foo`[1:],
+			pvMutators: `
+      - image: gcr.io/kpt-fn/set-namespace:v0.1
         configMap:
-          namespace: my-ns`,
+          namespace: my-ns`[1:],
 			expectedErr: "",
-			expectedPrr: prrBase + `          - image: gcr.io/kpt-fn/set-namespace:v0.1
+			expectedPrr: prrBase + `
+        - image: gcr.io/kpt-fn/set-namespace:v0.1
+          configMap:
+            namespace: my-ns
+        - image: gcr.io/kpt-fn/set-labels:v0.1
+          configMap:
+            app: foo
+`[1:],
+		},
+		"add one with existing, wide seq style": {
+			initialMutators: `
+          - image: gcr.io/kpt-fn/set-labels:v0.1
+            configMap:
+              app: foo`[1:],
+			pvMutators: `
+      - image: gcr.io/kpt-fn/set-namespace:v0.1
+        configMap:
+          namespace: my-ns`[1:],
+			expectedErr: "",
+			expectedPrr: prrBase + `
+          - image: gcr.io/kpt-fn/set-namespace:v0.1
             configMap:
               namespace: my-ns
           - image: gcr.io/kpt-fn/set-labels:v0.1
             configMap:
               app: foo
-`,
+`[1:],
 		},
 		"add one with none existing": {
 			initialMutators: "",
-			pvMutators: `      - image: gcr.io/kpt-fn/set-namespace:v0.1
+			pvMutators: `
+      - image: gcr.io/kpt-fn/set-namespace:v0.1
         configMap:
-          namespace: my-ns`,
+          namespace: my-ns`[1:],
 			expectedErr: "",
-			expectedPrr: prrBase + `          - image: gcr.io/kpt-fn/set-namespace:v0.1
-            configMap:
-              namespace: my-ns
-`,
-		},
-		// TODO because now we don't call yaml.Marshal on the kptfile, expectedPrr is slightly different in terms of spacing
-		// We should think about whether we need a custom unmarshaller inside PackageRevisionResources, that ensures
-		// the kpt file is always formatted the same way before being added into the PackageRevisionResources
-		"add none with existing": {
-			initialMutators: `        - image: gcr.io/kpt-fn/set-labels:v0.1
+			expectedPrr: prrBase + `
+        - image: gcr.io/kpt-fn/set-namespace:v0.1
           configMap:
-            app: foo`,
+            namespace: my-ns
+`[1:],
+		},
+		"add none with existing": {
+			initialMutators: `
+        - image: gcr.io/kpt-fn/set-labels:v0.1
+          configMap:
+            app: foo`[1:],
 			pvMutators:  "",
 			expectedErr: "",
-			expectedPrr: prrBase + `        - image: gcr.io/kpt-fn/set-labels:v0.1
+			expectedPrr: prrBase + `
+        - image: gcr.io/kpt-fn/set-labels:v0.1
           configMap:
-            app: foo`,
+            app: foo`[1:],
 		},
 		"add two with existing": {
-			initialMutators: `        - image: gcr.io/kpt-fn/set-labels:v0.1
+			initialMutators: `
+        - image: gcr.io/kpt-fn/set-labels:v0.1
           configMap:
-            app: foo`,
-			pvMutators: `      - image: gcr.io/kpt-fn/set-namespace:v0.1
+            app: foo`[1:],
+			pvMutators: `
+      - image: gcr.io/kpt-fn/set-namespace:v0.1
         configMap:
           namespace: my-ns
       - image: gcr.io/kpt-fn/set-annotation:v0.1
         configMap:
-          namespace: my-ns`,
+          namespace: my-ns`[1:],
 			expectedErr: "",
-			expectedPrr: prrBase + `          - image: gcr.io/kpt-fn/set-namespace:v0.1
-            configMap:
-              namespace: my-ns
-          - image: gcr.io/kpt-fn/set-annotation:v0.1
-            configMap:
-              namespace: my-ns
-          - image: gcr.io/kpt-fn/set-labels:v0.1
-            configMap:
-              app: foo
-`},
+			expectedPrr: prrBase + `
+        - image: gcr.io/kpt-fn/set-namespace:v0.1
+          configMap:
+            namespace: my-ns
+        - image: gcr.io/kpt-fn/set-annotation:v0.1
+          configMap:
+            namespace: my-ns
+        - image: gcr.io/kpt-fn/set-labels:v0.1
+          configMap:
+            app: foo
+`[1:],
+		},
 	}
 
 	for tn, tc := range testCases {
