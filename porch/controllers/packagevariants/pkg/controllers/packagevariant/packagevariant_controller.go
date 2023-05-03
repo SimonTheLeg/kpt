@@ -21,7 +21,6 @@ import (
 	"strconv"
 	"strings"
 
-	internalpkg "github.com/GoogleContainerTools/kpt/internal/pkg"
 	kptfilev1 "github.com/GoogleContainerTools/kpt/pkg/api/kptfile/v1"
 	porchapi "github.com/GoogleContainerTools/kpt/porch/api/porch/v1alpha1"
 	configapi "github.com/GoogleContainerTools/kpt/porch/api/porchconfig/v1alpha1"
@@ -794,22 +793,45 @@ func ensureKRMFunctions(pv *api.PackageVariant,
 		return fmt.Errorf("%s not found in PackageRevisionResources '%s/%s'", kptfilev1.KptFileName, prr.Namespace, prr.Name)
 	}
 
-	kptfile, err := internalpkg.DecodeKptfile(strings.NewReader(prr.Spec.Resources[kptfilev1.KptFileName]))
+	// parse PackageVariant Mutators
+	mpvmutators, err := kyaml.Marshal(pv.Spec.Mutators)
+	if err != nil {
+		return fmt.Errorf("failed to marshal Mutators of PackageRevisionResources '%s/%s': %w", prr.Namespace, prr.Name, err)
+	}
+	pvmutators, err := kyaml.Parse(string(mpvmutators))
+	if err != nil {
+		return fmt.Errorf("failed to parse Mutators of PackageRevisionResources '%s/%s'", prr.Namespace, prr.Name)
+	}
+
+	// parse existing kptFile Mutators
+	kptfile, err := kyaml.Parse(prr.Spec.Resources[kptfilev1.KptFileName])
 	if err != nil {
 		return fmt.Errorf("failed to parse %s of PackageRevisionResources '%s/%s'", kptfilev1.KptFileName, prr.Namespace, prr.Name)
 	}
 
-	// TODO q: why are PackageVariant mutators being run before the ones in the kptfile?
-	// Wouldn't that make it harder for the vendors of the the original package, because their mutators now need
-	// to account for the possibility of mutators from end-users?
-	kptfile.Pipeline.Mutators = append(pv.Spec.Mutators, kptfile.Pipeline.Mutators...)
-
-	// use kyaml here to preserve the original order of keys in kptfile
-	newKptfile, err := kyaml.MarshalWithOptions(kptfile, &kyaml.EncoderOptions{SeqIndent: kyaml.WideSequenceStyle})
+	kptfileMutators, err := kptfile.Pipe(kyaml.Lookup("pipeline", "mutators"))
 	if err != nil {
-		return fmt.Errorf("failed to marshal %s of PackageRevisionResources '%s/%s': %v", kptfilev1.KptFileName, prr.Namespace, prr.Name, err)
+		return fmt.Errorf("failed to retrieve Mutators from PackageVariant into %s of PackageRevisionResources '%s/%s': %w",
+			kptfilev1.KptFileName, prr.Namespace, prr.Name, err)
 	}
-	prr.Spec.Resources[kptfilev1.KptFileName] = string(newKptfile)
+
+	// update kptFile
+	if kyaml.IsYNodeTaggedNull(kptfileMutators.YNode()) {
+		if err := kptfile.PipeE(kyaml.Lookup("pipeline"), kyaml.SetField("mutators", pvmutators)); err != nil {
+			return fmt.Errorf("failed to set Mutators from PackageVariant into %s of PackageRevisionResources '%s/%s': %w",
+				kptfilev1.KptFileName, prr.Namespace, prr.Name, err)
+		}
+	} else {
+		kptfileMutators.YNode().Content = append(pvmutators.Content(), kptfileMutators.Content()...)
+	}
+
+	seqIndentStyle := kyaml.DeriveSeqIndentStyle(prr.Spec.Resources[kptfilev1.KptFileName])
+	skptfile, err := kyaml.MarshalWithOptions(kptfile.YNode(), &kyaml.EncoderOptions{SeqIndent: kyaml.SequenceIndentStyle(seqIndentStyle)})
+	if err != nil {
+		return fmt.Errorf("failed to marshal new %s of PackageRevisionResources '%s/%s': %w", kptfilev1.KptFileName, prr.Namespace, prr.Name, err)
+	}
+
+	prr.Spec.Resources[kptfilev1.KptFileName] = string(skptfile)
 
 	return nil
 }
