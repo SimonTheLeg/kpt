@@ -782,6 +782,8 @@ func getFileKubeObject(prr *porchapi.PackageRevisionResources, file, kind, name 
 	}
 
 	return ko, nil
+}
+
 func ensureKRMFunctions(pv *api.PackageVariant,
 	prr *porchapi.PackageRevisionResources) error {
 
