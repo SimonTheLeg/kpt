@@ -21,12 +21,11 @@ import (
 	"strconv"
 	"strings"
 
-	kptfilev1 "github.com/GoogleContainerTools/kpt/pkg/api/kptfile/v1"
 	porchapi "github.com/GoogleContainerTools/kpt/porch/api/porch/v1alpha1"
 	configapi "github.com/GoogleContainerTools/kpt/porch/api/porchconfig/v1alpha1"
 	api "github.com/GoogleContainerTools/kpt/porch/controllers/packagevariants/api/v1alpha1"
-	kyaml "sigs.k8s.io/kustomize/kyaml/yaml"
 
+	kptfilev1 "github.com/GoogleContainerTools/kpt-functions-sdk/go/api/kptfile/v1"
 	"github.com/GoogleContainerTools/kpt-functions-sdk/go/fn"
 
 	"golang.org/x/mod/semver"
@@ -787,53 +786,140 @@ func getFileKubeObject(prr *porchapi.PackageRevisionResources, file, kind, name 
 func ensureKRMFunctions(pv *api.PackageVariant,
 	prr *porchapi.PackageRevisionResources) error {
 
-	if len(pv.Spec.Mutators) == 0 {
+	if pv.Spec.Pipeline.IsEmpty() {
 		return nil
 	}
 
+	// parse kptfile
 	if _, ok := prr.Spec.Resources[kptfilev1.KptFileName]; !ok {
 		return fmt.Errorf("%s not found in PackageRevisionResources '%s/%s'", kptfilev1.KptFileName, prr.Namespace, prr.Name)
 	}
-
-	// parse PackageVariant Mutators
-	mpvmutators, err := kyaml.Marshal(pv.Spec.Mutators)
-	if err != nil {
-		return fmt.Errorf("failed to marshal Mutators of PackageRevisionResources '%s/%s': %w", prr.Namespace, prr.Name, err)
-	}
-	pvmutators, err := kyaml.Parse(string(mpvmutators))
-	if err != nil {
-		return fmt.Errorf("failed to parse Mutators of PackageRevisionResources '%s/%s'", prr.Namespace, prr.Name)
-	}
-
-	// parse existing kptFile Mutators
-	kptfile, err := kyaml.Parse(prr.Spec.Resources[kptfilev1.KptFileName])
+	kptfile, err := fn.ParseKubeObject([]byte(prr.Spec.Resources[kptfilev1.KptFileName]))
 	if err != nil {
 		return fmt.Errorf("failed to parse %s of PackageRevisionResources '%s/%s'", kptfilev1.KptFileName, prr.Namespace, prr.Name)
 	}
 
-	kptfileMutators, err := kptfile.Pipe(kyaml.Lookup("pipeline", "mutators"))
-	if err != nil {
-		return fmt.Errorf("failed to retrieve Mutators from PackageVariant into %s of PackageRevisionResources '%s/%s': %w",
-			kptfilev1.KptFileName, prr.Namespace, prr.Name, err)
-	}
+	// generate new mutators
+	var newMutators = fn.SliceSubObjects{}
 
-	// update kptFile
-	if kyaml.IsYNodeTaggedNull(kptfileMutators.YNode()) {
-		if err := kptfile.PipeE(kyaml.Lookup("pipeline"), kyaml.SetField("mutators", pvmutators)); err != nil {
-			return fmt.Errorf("failed to set Mutators from PackageVariant into %s of PackageRevisionResources '%s/%s': %w",
-				kptfilev1.KptFileName, prr.Namespace, prr.Name, err)
+	existingmutators, _, err := kptfile.NestedSlice("pipeline", "mutators")
+	if err != nil {
+		return fmt.Errorf("PackageRevisionResources %s/%s invalid Mutators field: %w", prr.Namespace, prr.Name, err)
+	}
+	for _, mutator := range existingmutators {
+		ok, err := isPackageVariantFunc(mutator, pv.ObjectMeta.Name)
+		if err != nil {
+			return fmt.Errorf("PackageRevisionResources %s/%s could not determine origin for mutator: %w", prr.Namespace, prr.Name, err)
 		}
-	} else {
-		kptfileMutators.YNode().Content = append(pvmutators.Content(), kptfileMutators.Content()...)
+		if !ok {
+			newMutators = append(newMutators, mutator)
+		}
 	}
 
-	seqIndentStyle := kyaml.DeriveSeqIndentStyle(prr.Spec.Resources[kptfilev1.KptFileName])
-	skptfile, err := kyaml.MarshalWithOptions(kptfile.YNode(), &kyaml.EncoderOptions{SeqIndent: kyaml.SequenceIndentStyle(seqIndentStyle)})
-	if err != nil {
-		return fmt.Errorf("failed to marshal new %s of PackageRevisionResources '%s/%s': %w", kptfilev1.KptFileName, prr.Namespace, prr.Name, err)
+	var newPVMutators = fn.SliceSubObjects{}
+	for i, mutator := range pv.Spec.Pipeline.Mutators {
+		newMutator := mutator.DeepCopy()
+		newMutator.Name = generatePVFuncName(mutator.Name, pv.ObjectMeta.Name, i)
+		mut, err := fn.NewFromTypedObject(newMutator)
+		if err != nil {
+			return fmt.Errorf("PackageRevisionResources %s/%s could not create new mutator: %w", prr.Namespace, prr.Name, err)
+		}
+		newPVMutators = append(newPVMutators, &mut.SubObject)
 	}
 
-	prr.Spec.Resources[kptfilev1.KptFileName] = string(skptfile)
+	newMutators = append(newPVMutators, newMutators...)
+
+	// update kptfile
+	if err := kptfile.SetNestedField(newMutators, "pipeline", "mutators"); err != nil {
+		return fmt.Errorf("PackageRevisionResources %s/%s could not update pipeline.mutators: %w", prr.Namespace, prr.Name, err)
+	}
+
+	// // parse PackageVariant Mutators
+	// mpvmutators, err := kyaml.Marshal(pv.Spec.Mutators)
+	// if err != nil {
+	// 	return fmt.Errorf("failed to marshal Mutators of PackageRevisionResources '%s/%s': %w", prr.Namespace, prr.Name, err)
+	// }
+	// pvmutators, err := kyaml.Parse(string(mpvmutators))
+	// if err != nil {
+	// 	return fmt.Errorf("failed to parse Mutators of PackageRevisionResources '%s/%s'", prr.Namespace, prr.Name)
+	// }
+
+	// // parse existing kptFile Mutators
+	// kptfile, err := kyaml.Parse(prr.Spec.Resources[kptfilev1.KptFileName])
+	// if err != nil {
+	// 	return fmt.Errorf("failed to parse %s of PackageRevisionResources '%s/%s'", kptfilev1.KptFileName, prr.Namespace, prr.Name)
+	// }
+
+	// kptfileMutators, err := kptfile.Pipe(kyaml.Lookup("pipeline", "mutators"))
+	// if err != nil {
+	// 	return fmt.Errorf("failed to retrieve Mutators from PackageVariant into %s of PackageRevisionResources '%s/%s': %w",
+	// 		kptfilev1.KptFileName, prr.Namespace, prr.Name, err)
+	// }
+
+	// // update kptFile
+	// if kyaml.IsYNodeTaggedNull(kptfileMutators.YNode()) {
+	// 	if err := kptfile.PipeE(kyaml.Lookup("pipeline"), kyaml.SetField("mutators", pvmutators)); err != nil {
+	// 		return fmt.Errorf("failed to set Mutators from PackageVariant into %s of PackageRevisionResources '%s/%s': %w",
+	// 			kptfilev1.KptFileName, prr.Namespace, prr.Name, err)
+	// 	}
+	// } else {
+	// 	kptfileMutators.YNode().Content = append(pvmutators.Content(), kptfileMutators.Content()...)
+	// }
+
+	// seqIndentStyle := kyaml.DeriveSeqIndentStyle(prr.Spec.Resources[kptfilev1.KptFileName])
+	// skptfile, err := kyaml.MarshalWithOptions(kptfile., &kyaml.EncoderOptions{SeqIndent: kyaml.SequenceIndentStyle(seqIndentStyle)})
+	// if err != nil {
+	// 	return fmt.Errorf("failed to marshal new %s of PackageRevisionResources '%s/%s': %w", kptfilev1.KptFileName, prr.Namespace, prr.Name, err)
+	// }
+
+	prr.Spec.Resources[kptfilev1.KptFileName] = kptfile.String()
 
 	return nil
+}
+
+const PackageVariantFuncPrefix = "PackageVariant"
+
+// isPackageVariantFunc returns true if a function has been created via a PackageVariant.
+// It uses the name of the func to determine its origin and compares it with the supplied pvName.
+func isPackageVariantFunc(fn *fn.SubObject, pvName string) (bool, error) {
+	origname, ok, err := fn.NestedString("name")
+	if err != nil {
+		return false, fmt.Errorf("could not retrieve field name: %w", err)
+	}
+	if !ok {
+		return false, fmt.Errorf("could not find field name in supplied func")
+	}
+
+	name := strings.Split(origname, ".")
+
+	// if more or less than 3 dots have been used, return false
+	if len(name) != 4 {
+		return false, nil
+	}
+
+	// if PackageVariantFuncPrefix has not been used, return false
+	if name[0] != PackageVariantFuncPrefix {
+		return false, nil
+	}
+
+	// if pv-names don't match, return false
+	if name[1] != pvName {
+		return false, nil
+	}
+
+	// make sure func name is not empty
+	if name[2] == "" {
+		return false, nil
+	}
+
+	// if the last segment is not an integer, return false
+	if _, err := strconv.Atoi(name[3]); err != nil {
+		return false, nil
+	}
+
+	return true, nil
+}
+
+func generatePVFuncName(funcName, pvName string, pos int) string {
+	return fmt.Sprintf("%s.%s.%s.%d", PackageVariantFuncPrefix, pvName, funcName, pos)
 }
