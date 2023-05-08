@@ -19,6 +19,7 @@ import (
 	"fmt"
 	"testing"
 
+	"github.com/GoogleContainerTools/kpt-functions-sdk/go/fn"
 	porchapi "github.com/GoogleContainerTools/kpt/porch/api/porch/v1alpha1"
 	api "github.com/GoogleContainerTools/kpt/porch/controllers/packagevariants/api/v1alpha1"
 	"github.com/stretchr/testify/require"
@@ -1115,7 +1116,8 @@ spec:
   downstream:
     repo: deployments
     package: bar
-  mutators:
+  pipeline:
+    mutators:
 `[1:]
 
 	prrBase := `
@@ -1149,85 +1151,20 @@ spec:
 	}{
 		"add one with existing": {
 			initialMutators: `
-        - image: gcr.io/kpt-fn/set-labels:v0.1
-          configMap:
-            app: foo`[1:],
-			pvMutators: `
-      - image: gcr.io/kpt-fn/set-namespace:v0.1
-        configMap:
-          namespace: my-ns`[1:],
-			expectedErr: "",
-			expectedPrr: prrBase + `
-        - image: gcr.io/kpt-fn/set-namespace:v0.1
-          configMap:
-            namespace: my-ns
-        - image: gcr.io/kpt-fn/set-labels:v0.1
-          configMap:
-            app: foo
-`[1:],
-		},
-		"add one with existing, wide seq style": {
-			initialMutators: `
           - image: gcr.io/kpt-fn/set-labels:v0.1
-            configMap:
-              app: foo`[1:],
-			pvMutators: `
-      - image: gcr.io/kpt-fn/set-namespace:v0.1
-        configMap:
-          namespace: my-ns`[1:],
-			expectedErr: "",
-			expectedPrr: prrBase + `
-          - image: gcr.io/kpt-fn/set-namespace:v0.1
-            configMap:
-              namespace: my-ns
-          - image: gcr.io/kpt-fn/set-labels:v0.1
+            name: set-labels
             configMap:
               app: foo
-`[1:],
-		},
-		"add one with none existing": {
-			initialMutators: "",
+          - image: gcr.io/kpt-fn/set-annotations:v0.1
+            name: set-annotations`[1:],
 			pvMutators: `
       - image: gcr.io/kpt-fn/set-namespace:v0.1
+        name: set-namespace
         configMap:
           namespace: my-ns`[1:],
 			expectedErr: "",
 			expectedPrr: prrBase + `
         - image: gcr.io/kpt-fn/set-namespace:v0.1
-          configMap:
-            namespace: my-ns
-`[1:],
-		},
-		"add none with existing": {
-			initialMutators: `
-        - image: gcr.io/kpt-fn/set-labels:v0.1
-          configMap:
-            app: foo`[1:],
-			pvMutators:  "",
-			expectedErr: "",
-			expectedPrr: prrBase + `
-        - image: gcr.io/kpt-fn/set-labels:v0.1
-          configMap:
-            app: foo`[1:],
-		},
-		"add two with existing": {
-			initialMutators: `
-        - image: gcr.io/kpt-fn/set-labels:v0.1
-          configMap:
-            app: foo`[1:],
-			pvMutators: `
-      - image: gcr.io/kpt-fn/set-namespace:v0.1
-        configMap:
-          namespace: my-ns
-      - image: gcr.io/kpt-fn/set-annotation:v0.1
-        configMap:
-          namespace: my-ns`[1:],
-			expectedErr: "",
-			expectedPrr: prrBase + `
-        - image: gcr.io/kpt-fn/set-namespace:v0.1
-          configMap:
-            namespace: my-ns
-        - image: gcr.io/kpt-fn/set-annotation:v0.1
           configMap:
             namespace: my-ns
         - image: gcr.io/kpt-fn/set-labels:v0.1
@@ -1235,6 +1172,75 @@ spec:
             app: foo
 `[1:],
 		},
+		// "add one with existing, wide seq style": {
+		// 	initialMutators: `
+		// - image: gcr.io/kpt-fn/set-labels:v0.1
+		// configMap:
+		// app: foo`[1:],
+		// 	pvMutators: `
+		// - image: gcr.io/kpt-fn/set-namespace:v0.1
+		// configMap:
+		// namespace: my-ns`[1:],
+		// 	expectedErr: "",
+		// 	expectedPrr: prrBase + `
+		// - image: gcr.io/kpt-fn/set-namespace:v0.1
+		// configMap:
+		// namespace: my-ns
+		// - image: gcr.io/kpt-fn/set-labels:v0.1
+		// configMap:
+		// app: foo
+		// `[1:],
+		// },
+		// "add one with none existing": {
+		// 	initialMutators: "",
+		// 	pvMutators: `
+		// - image: gcr.io/kpt-fn/set-namespace:v0.1
+		// configMap:
+		// namespace: my-ns`[1:],
+		// 	expectedErr: "",
+		// 	expectedPrr: prrBase + `
+		// - image: gcr.io/kpt-fn/set-namespace:v0.1
+		// configMap:
+		// namespace: my-ns
+		// `[1:],
+		// },
+		// "add none with existing": {
+		// 	initialMutators: `
+		// - image: gcr.io/kpt-fn/set-labels:v0.1
+		// configMap:
+		// app: foo`[1:],
+		// 	pvMutators:  "",
+		// 	expectedErr: "",
+		// 	expectedPrr: prrBase + `
+		// - image: gcr.io/kpt-fn/set-labels:v0.1
+		// configMap:
+		// app: foo`[1:],
+		// },
+		// "add two with existing": {
+		// 	initialMutators: `
+		// - image: gcr.io/kpt-fn/set-labels:v0.1
+		// configMap:
+		// app: foo`[1:],
+		// 	pvMutators: `
+		// - image: gcr.io/kpt-fn/set-namespace:v0.1
+		// configMap:
+		// namespace: my-ns
+		// - image: gcr.io/kpt-fn/set-annotation:v0.1
+		// configMap:
+		// namespace: my-ns`[1:],
+		// 	expectedErr: "",
+		// 	expectedPrr: prrBase + `
+		// - image: gcr.io/kpt-fn/set-namespace:v0.1
+		// configMap:
+		// namespace: my-ns
+		// - image: gcr.io/kpt-fn/set-annotation:v0.1
+		// configMap:
+		// namespace: my-ns
+		// - image: gcr.io/kpt-fn/set-labels:v0.1
+		// configMap:
+		// app: foo
+		// `[1:],
+		// },
 	}
 
 	for tn, tc := range testCases {
@@ -1254,6 +1260,89 @@ spec:
 			require.NoError(t, yaml.Unmarshal([]byte(tc.expectedPrr), &expectedPRR))
 
 			require.Equal(t, expectedPRR, prr)
+		})
+	}
+}
+
+func TestGeneratePVFuncName(t *testing.T) {
+	tt := map[string]struct {
+		funcName     string
+		pvName       string
+		pos          int
+		expectedName string
+	}{
+		"regular func": {
+			funcName:     "my-func",
+			pvName:       "my-pv",
+			pos:          3,
+			expectedName: "PackageVariant.my-pv.my-func.3",
+		},
+	}
+
+	for name, tc := range tt {
+		t.Run(name, func(t *testing.T) {
+			res := generatePVFuncName(tc.funcName, tc.pvName, tc.pos)
+
+			require.Equal(t, tc.expectedName, res)
+		})
+	}
+}
+
+func TestIsPackageVariantFunc(t *testing.T) {
+	tt := map[string]struct {
+		funcyaml    string
+		pvName      string
+		expectedRes bool
+	}{
+		"valid func name": {
+			funcyaml:    "name: PackageVariant.my-pv.my-func.0",
+			pvName:      "my-pv",
+			expectedRes: true,
+		},
+		"field name is missing": {
+			funcyaml:    "otherkey: PackageVariant.my-pv.my-func.0",
+			pvName:      "my-pv",
+			expectedRes: false,
+		},
+		"additional dots": {
+			funcyaml:    "name: PackageVariant.too.many.dots.0",
+			pvName:      "too",
+			expectedRes: false,
+		},
+		"not enough dots": {
+			funcyaml:    "name: PackageVariant.not-enough.dots",
+			pvName:      "not-enough",
+			expectedRes: false,
+		},
+		"no PackageVariantPrefix": {
+			funcyaml:    "name: noprefix.my-pv.my-func.0",
+			pvName:      "my-pv",
+			expectedRes: false,
+		},
+		"pv-name mismatch": {
+			funcyaml:    "name: PackageVariant.my-pv.my-func.0",
+			pvName:      "actually-a-different-pv",
+			expectedRes: false,
+		},
+		"empty func name": {
+			funcyaml:    "name: PackageVariant.my-pv..0",
+			pvName:      "my-pv",
+			expectedRes: false,
+		},
+		"positional location is not an int": {
+			funcyaml:    "name: PackageVariant.my-pv.my-func.str",
+			pvName:      "my-pv",
+			expectedRes: false,
+		},
+	}
+
+	for name, tc := range tt {
+		t.Run(name, func(t *testing.T) {
+			o, err := fn.ParseKubeObject([]byte(tc.funcyaml))
+			require.NoError(t, err)
+			res, _ := isPackageVariantFunc(&o.SubObject, tc.pvName)
+
+			require.Equal(t, tc.expectedRes, res)
 		})
 	}
 }

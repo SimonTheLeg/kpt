@@ -55,9 +55,8 @@ const (
 
 // PackageVariantSpec defines the desired state of PackageVariant
 type PackageVariantSpec struct {
-	Upstream   *Upstream            `json:"upstream,omitempty"`
-	Downstream *Downstream          `json:"downstream,omitempty"`
-	Mutators   []kptfilev1.Function `json:"mutators,omitempty"`
+	Upstream   *Upstream   `json:"upstream,omitempty"`
+	Downstream *Downstream `json:"downstream,omitempty"`
 
 	AdoptionPolicy AdoptionPolicy `json:"adoptionPolicy,omitempty"`
 	DeletionPolicy DeletionPolicy `json:"deletionPolicy,omitempty"`
@@ -65,7 +64,8 @@ type PackageVariantSpec struct {
 	Labels      map[string]string `json:"labels,omitempty"`
 	Annotations map[string]string `json:"annotations,omitempty"`
 
-	PackageContext *PackageContext `json:"packageContext,omitempty"`
+	PackageContext *PackageContext     `json:"packageContext,omitempty"`
+	Pipeline       *kptfilev1.Pipeline `json:"pipeline,omitempty"`
 }
 
 type Upstream struct {
