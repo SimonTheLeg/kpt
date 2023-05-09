@@ -783,6 +783,10 @@ func getFileKubeObject(prr *porchapi.PackageRevisionResources, file, kind, name 
 	return ko, nil
 }
 
+// TODO known issues:
+// - will move the newly generated name to the top of the mutator sequence
+// - does not preserve indent style. Instead will format if there are mutators/validators in pv, but will preserve if there are none.
+// - will not throw an error if the initial kptfile contains empty pipeline key
 func ensureKRMFunctions(pv *api.PackageVariant,
 	prr *porchapi.PackageRevisionResources) error {
 
@@ -834,8 +838,6 @@ func ensureKRMFunctions(pv *api.PackageVariant,
 	}
 
 	newMutators = append(newPVMutators, newMutators...)
-
-	klog.Infoln("newMutators = %v", newMutators)
 
 	// update kptfile
 	if err := pipeline.SetSlice(newMutators, "mutators"); err != nil {
