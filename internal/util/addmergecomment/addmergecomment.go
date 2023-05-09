@@ -21,7 +21,6 @@ import (
 
 	"github.com/GoogleContainerTools/kpt/internal/util/merge"
 	"sigs.k8s.io/kustomize/kyaml/copyutil"
-	"sigs.k8s.io/kustomize/kyaml/filesys"
 	"sigs.k8s.io/kustomize/kyaml/kio"
 	"sigs.k8s.io/kustomize/kyaml/resid"
 	kyaml "sigs.k8s.io/kustomize/kyaml/yaml"
@@ -139,11 +138,10 @@ func (amc *AddMergeComment) Filter(object *kyaml.RNode) (*kyaml.RNode, error) {
 // it also returns the cleanup function to clean the created temp directory
 func ProcessWithCleanup(path string) (string, func(), error) {
 	expected, err := os.MkdirTemp("", "")
-	fs := filesys.MakeFsOnDisk()
 	if err != nil {
 		return "", nil, err
 	}
-	err = copyutil.CopyDir(fs, path, expected)
+	err = copyutil.CopyDir(path, expected)
 	if err != nil {
 		return "", nil, err
 	}
