@@ -803,10 +803,10 @@ func ensureKRMFunctions(pv *api.PackageVariant,
 		return fmt.Errorf("failed to parse %s of PackageRevisionResources '%s/%s'", kptfilev1.KptFileName, prr.Namespace, prr.Name)
 	}
 
+	pipeline := kptfile.UpsertMap("pipeline")
+
 	// generate new mutators
 	var newMutators = fn.SliceSubObjects{}
-
-	pipeline := kptfile.UpsertMap("pipeline")
 
 	existingmutators, ok, err := pipeline.NestedSlice("mutators")
 	if err != nil {
@@ -839,48 +839,52 @@ func ensureKRMFunctions(pv *api.PackageVariant,
 
 	newMutators = append(newPVMutators, newMutators...)
 
-	// update kptfile
-	if err := pipeline.SetSlice(newMutators, "mutators"); err != nil {
+	// generate new validators
+	var newValidators = fn.SliceSubObjects{}
+
+	existingvalidators, ok, err := pipeline.NestedSlice("validators")
+	if err != nil {
 		return err
 	}
+	if !ok || existingvalidators == nil {
+		existingvalidators = fn.SliceSubObjects{}
+	}
 
-	// // parse PackageVariant Mutators
-	// mpvmutators, err := kyaml.Marshal(pv.Spec.Mutators)
-	// if err != nil {
-	// 	return fmt.Errorf("failed to marshal Mutators of PackageRevisionResources '%s/%s': %w", prr.Namespace, prr.Name, err)
-	// }
-	// pvmutators, err := kyaml.Parse(string(mpvmutators))
-	// if err != nil {
-	// 	return fmt.Errorf("failed to parse Mutators of PackageRevisionResources '%s/%s'", prr.Namespace, prr.Name)
-	// }
+	for _, validator := range existingvalidators {
+		ok, err := isPackageVariantFunc(validator, pv.ObjectMeta.Name)
+		if err != nil {
+			return err
+		}
+		if !ok {
+			newValidators = append(newValidators, validator)
+		}
+	}
 
-	// // parse existing kptFile Mutators
-	// kptfile, err := kyaml.Parse(prr.Spec.Resources[kptfilev1.KptFileName])
-	// if err != nil {
-	// 	return fmt.Errorf("failed to parse %s of PackageRevisionResources '%s/%s'", kptfilev1.KptFileName, prr.Namespace, prr.Name)
-	// }
+	var newPVValidators = fn.SliceSubObjects{}
+	for i, validator := range pv.Spec.Pipeline.Validators {
+		newValidator := validator.DeepCopy()
+		newValidator.Name = generatePVFuncName(validator.Name, pv.ObjectMeta.Name, i)
+		val, err := fn.NewFromTypedObject(newValidator)
+		if err != nil {
+			return err
+		}
+		newPVValidators = append(newPVValidators, &val.SubObject)
+	}
 
-	// kptfileMutators, err := kptfile.Pipe(kyaml.Lookup("pipeline", "mutators"))
-	// if err != nil {
-	// 	return fmt.Errorf("failed to retrieve Mutators from PackageVariant into %s of PackageRevisionResources '%s/%s': %w",
-	// 		kptfilev1.KptFileName, prr.Namespace, prr.Name, err)
-	// }
+	newValidators = append(newPVValidators, newValidators...)
 
-	// // update kptFile
-	// if kyaml.IsYNodeTaggedNull(kptfileMutators.YNode()) {
-	// 	if err := kptfile.PipeE(kyaml.Lookup("pipeline"), kyaml.SetField("mutators", pvmutators)); err != nil {
-	// 		return fmt.Errorf("failed to set Mutators from PackageVariant into %s of PackageRevisionResources '%s/%s': %w",
-	// 			kptfilev1.KptFileName, prr.Namespace, prr.Name, err)
-	// 	}
-	// } else {
-	// 	kptfileMutators.YNode().Content = append(pvmutators.Content(), kptfileMutators.Content()...)
-	// }
+	// update kptfile
+	if len(newMutators) > 0 {
+		if err := pipeline.SetSlice(newMutators, "mutators"); err != nil {
+			return err
+		}
+	}
 
-	// seqIndentStyle := kyaml.DeriveSeqIndentStyle(prr.Spec.Resources[kptfilev1.KptFileName])
-	// skptfile, err := kyaml.MarshalWithOptions(kptfile., &kyaml.EncoderOptions{SeqIndent: kyaml.SequenceIndentStyle(seqIndentStyle)})
-	// if err != nil {
-	// 	return fmt.Errorf("failed to marshal new %s of PackageRevisionResources '%s/%s': %w", kptfilev1.KptFileName, prr.Namespace, prr.Name, err)
-	// }
+	if len(newValidators) > 0 {
+		if err := pipeline.SetSlice(newValidators, "validators"); err != nil {
+			return err
+		}
+	}
 
 	prr.Spec.Resources[kptfilev1.KptFileName] = kptfile.String()
 
