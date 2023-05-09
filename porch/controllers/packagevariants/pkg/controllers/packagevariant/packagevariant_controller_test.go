@@ -1307,6 +1307,15 @@ spec:
 			require.NoError(t, yaml.Unmarshal([]byte(tc.expectedPrr), &expectedPRR))
 
 			require.Equal(t, expectedPRR, prr)
+
+			// test idempotence
+			idemErr := ensureKRMFunctions(&pv, &prr)
+			if tc.expectedErr == "" {
+				require.NoError(t, idemErr)
+			} else {
+				require.EqualError(t, idemErr, tc.expectedErr)
+			}
+			require.Equal(t, expectedPRR, prr) // check that prr still matches expected
 		})
 	}
 }
