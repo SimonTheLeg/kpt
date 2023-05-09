@@ -802,10 +802,25 @@ func ensureKRMFunctions(pv *api.PackageVariant,
 	// generate new mutators
 	var newMutators = fn.SliceSubObjects{}
 
-	existingmutators, _, err := kptfile.NestedSlice("pipeline", "mutators")
+	pipeline, ok, err := kptfile.NestedSubObject("pipeline")
 	if err != nil {
-		return fmt.Errorf("PackageRevisionResources %s/%s invalid Mutators field: %w", prr.Namespace, prr.Name, err)
+		return err
 	}
+	if !ok {
+		ko, err := fn.NewFromTypedObject(&kptfilev1.Pipeline{})
+		if err != nil {
+			return err
+		}
+		pipeline = ko.SubObject
+	}
+	existingmutators, ok, err := pipeline.NestedSlice("mutators")
+	if err != nil {
+		return err
+	}
+	if !ok || existingmutators == nil {
+		existingmutators = fn.SliceSubObjects{}
+	}
+
 	for _, mutator := range existingmutators {
 		ok, err := isPackageVariantFunc(mutator, pv.ObjectMeta.Name)
 		if err != nil {
@@ -829,9 +844,19 @@ func ensureKRMFunctions(pv *api.PackageVariant,
 
 	newMutators = append(newPVMutators, newMutators...)
 
+	klog.Infoln("newMutators = %v", newMutators)
+
 	// update kptfile
-	if err := kptfile.SetNestedField(newMutators, "pipeline", "mutators"); err != nil {
-		return fmt.Errorf("PackageRevisionResources %s/%s could not update pipeline.mutators: %w", prr.Namespace, prr.Name, err)
+	if err := pipeline.SetSlice(newMutators, "mutators"); err != nil {
+		return err
+	}
+
+	var pipelineTyped kptfilev1.Pipeline
+	if err := pipeline.As(&pipelineTyped); err != nil {
+		return err
+	}
+	if err := kptfile.SetNestedField(pipelineTyped, "pipeline"); err != nil {
+		return err
 	}
 
 	// // parse PackageVariant Mutators
