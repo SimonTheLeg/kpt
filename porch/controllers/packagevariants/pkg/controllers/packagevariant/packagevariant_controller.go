@@ -802,17 +802,8 @@ func ensureKRMFunctions(pv *api.PackageVariant,
 	// generate new mutators
 	var newMutators = fn.SliceSubObjects{}
 
-	pipeline, ok, err := kptfile.NestedSubObject("pipeline")
-	if err != nil {
-		return err
-	}
-	if !ok {
-		ko, err := fn.NewFromTypedObject(&kptfilev1.Pipeline{})
-		if err != nil {
-			return err
-		}
-		pipeline = ko.SubObject
-	}
+	pipeline := kptfile.UpsertMap("pipeline")
+
 	existingmutators, ok, err := pipeline.NestedSlice("mutators")
 	if err != nil {
 		return err
@@ -824,7 +815,7 @@ func ensureKRMFunctions(pv *api.PackageVariant,
 	for _, mutator := range existingmutators {
 		ok, err := isPackageVariantFunc(mutator, pv.ObjectMeta.Name)
 		if err != nil {
-			return fmt.Errorf("PackageRevisionResources %s/%s could not determine origin for mutator: %w", prr.Namespace, prr.Name, err)
+			return err
 		}
 		if !ok {
 			newMutators = append(newMutators, mutator)
@@ -837,7 +828,7 @@ func ensureKRMFunctions(pv *api.PackageVariant,
 		newMutator.Name = generatePVFuncName(mutator.Name, pv.ObjectMeta.Name, i)
 		mut, err := fn.NewFromTypedObject(newMutator)
 		if err != nil {
-			return fmt.Errorf("PackageRevisionResources %s/%s could not create new mutator: %w", prr.Namespace, prr.Name, err)
+			return err
 		}
 		newPVMutators = append(newPVMutators, &mut.SubObject)
 	}
@@ -848,14 +839,6 @@ func ensureKRMFunctions(pv *api.PackageVariant,
 
 	// update kptfile
 	if err := pipeline.SetSlice(newMutators, "mutators"); err != nil {
-		return err
-	}
-
-	var pipelineTyped kptfilev1.Pipeline
-	if err := pipeline.As(&pipelineTyped); err != nil {
-		return err
-	}
-	if err := kptfile.SetNestedField(pipelineTyped, "pipeline"); err != nil {
 		return err
 	}
 
