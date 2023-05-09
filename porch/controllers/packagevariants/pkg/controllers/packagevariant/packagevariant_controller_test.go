@@ -1100,7 +1100,7 @@ spec:
 	}
 }
 
-// TODO add handling of base kptfile with comments
+// TODO no pipeline
 func TestEnsureKRMFunctions(t *testing.T) {
 	pvBase := `
 apiVersion: config.porch.kpt.dev
@@ -1117,7 +1117,6 @@ spec:
     repo: deployments
     package: bar
   pipeline:
-    mutators:
 `[1:]
 
 	prrBase := `
@@ -1139,8 +1138,6 @@ spec:
           config.kubernetes.io/local-config: "true"
       info:
         description: Example
-      pipeline:
-        mutators:
 `[1:]
 
 	testCases := map[string]struct {
@@ -1151,6 +1148,7 @@ spec:
 	}{
 		"add one with existing": {
 			initialMutators: `
+        mutators:
           - image: gcr.io/kpt-fn/set-labels:v0.1
             name: set-labels
             configMap:
@@ -1158,95 +1156,144 @@ spec:
           - image: gcr.io/kpt-fn/set-annotations:v0.1
             name: set-annotations`[1:],
 			pvMutators: `
+    mutators:
       - image: gcr.io/kpt-fn/set-namespace:v0.1
         name: set-namespace
         configMap:
           namespace: my-ns`[1:],
 			expectedErr: "",
 			expectedPrr: prrBase + `
-        - image: gcr.io/kpt-fn/set-namespace:v0.1
+      pipeline:
+        mutators:
+        - name: PackageVariant.my-pv.set-namespace.0
+          image: gcr.io/kpt-fn/set-namespace:v0.1
           configMap:
             namespace: my-ns
         - image: gcr.io/kpt-fn/set-labels:v0.1
+          name: set-labels
           configMap:
             app: foo
+        - image: gcr.io/kpt-fn/set-annotations:v0.1
+          name: set-annotations
 `[1:],
 		},
-		// "add one with existing, wide seq style": {
-		// 	initialMutators: `
-		// - image: gcr.io/kpt-fn/set-labels:v0.1
-		// configMap:
-		// app: foo`[1:],
-		// 	pvMutators: `
-		// - image: gcr.io/kpt-fn/set-namespace:v0.1
-		// configMap:
-		// namespace: my-ns`[1:],
-		// 	expectedErr: "",
-		// 	expectedPrr: prrBase + `
-		// - image: gcr.io/kpt-fn/set-namespace:v0.1
-		// configMap:
-		// namespace: my-ns
-		// - image: gcr.io/kpt-fn/set-labels:v0.1
-		// configMap:
-		// app: foo
-		// `[1:],
-		// },
-		// "add one with none existing": {
-		// 	initialMutators: "",
-		// 	pvMutators: `
-		// - image: gcr.io/kpt-fn/set-namespace:v0.1
-		// configMap:
-		// namespace: my-ns`[1:],
-		// 	expectedErr: "",
-		// 	expectedPrr: prrBase + `
-		// - image: gcr.io/kpt-fn/set-namespace:v0.1
-		// configMap:
-		// namespace: my-ns
-		// `[1:],
-		// },
-		// "add none with existing": {
-		// 	initialMutators: `
-		// - image: gcr.io/kpt-fn/set-labels:v0.1
-		// configMap:
-		// app: foo`[1:],
-		// 	pvMutators:  "",
-		// 	expectedErr: "",
-		// 	expectedPrr: prrBase + `
-		// - image: gcr.io/kpt-fn/set-labels:v0.1
-		// configMap:
-		// app: foo`[1:],
-		// },
-		// "add two with existing": {
-		// 	initialMutators: `
-		// - image: gcr.io/kpt-fn/set-labels:v0.1
-		// configMap:
-		// app: foo`[1:],
-		// 	pvMutators: `
-		// - image: gcr.io/kpt-fn/set-namespace:v0.1
-		// configMap:
-		// namespace: my-ns
-		// - image: gcr.io/kpt-fn/set-annotation:v0.1
-		// configMap:
-		// namespace: my-ns`[1:],
-		// 	expectedErr: "",
-		// 	expectedPrr: prrBase + `
-		// - image: gcr.io/kpt-fn/set-namespace:v0.1
-		// configMap:
-		// namespace: my-ns
-		// - image: gcr.io/kpt-fn/set-annotation:v0.1
-		// configMap:
-		// namespace: my-ns
-		// - image: gcr.io/kpt-fn/set-labels:v0.1
-		// configMap:
-		// app: foo
-		// `[1:],
-		// },
+		"add two with existing": {
+			initialMutators: `
+        mutators:
+          - image: gcr.io/kpt-fn/set-labels:v0.1
+            name: set-labels
+            configMap:
+              app: foo
+          - image: gcr.io/kpt-fn/set-annotations:v0.1
+            name: set-annotations`[1:],
+			pvMutators: `
+    mutators:
+      - image: gcr.io/kpt-fn/set-namespace:v0.1
+        name: set-namespace
+        configMap:
+          namespace: my-ns
+      - image: gcr.io/kpt-fn/format:unstable
+        name: format`[1:],
+			expectedErr: "",
+			expectedPrr: prrBase + `
+      pipeline:
+        mutators:
+        - name: PackageVariant.my-pv.set-namespace.0
+          image: gcr.io/kpt-fn/set-namespace:v0.1
+          configMap:
+            namespace: my-ns
+        - name: PackageVariant.my-pv.format.1
+          image: gcr.io/kpt-fn/format:unstable
+        - image: gcr.io/kpt-fn/set-labels:v0.1
+          name: set-labels
+          configMap:
+            app: foo
+        - image: gcr.io/kpt-fn/set-annotations:v0.1
+          name: set-annotations
+`[1:],
+		},
+		"add one with none existing": {
+			initialMutators: "",
+			pvMutators: `
+    mutators:
+      - image: gcr.io/kpt-fn/set-namespace:v0.1
+        name: set-namespace
+        configMap:
+          namespace: my-ns`[1:],
+			expectedErr: "",
+			expectedPrr: prrBase + `
+      pipeline:
+        mutators:
+        - name: PackageVariant.my-pv.set-namespace.0
+          image: gcr.io/kpt-fn/set-namespace:v0.1
+          configMap:
+            namespace: my-ns
+`[1:],
+		},
+		"add none with existing": {
+			initialMutators: `
+        mutators:
+          - image: gcr.io/kpt-fn/set-labels:v0.1
+            name: set-labels
+            configMap:
+              app: foo
+          - image: gcr.io/kpt-fn/set-annotations:v0.1
+            name: set-annotations`[1:],
+			pvMutators:  "",
+			expectedErr: "",
+			expectedPrr: prrBase + `
+      pipeline:
+        mutators:
+          - image: gcr.io/kpt-fn/set-labels:v0.1
+            name: set-labels
+            configMap:
+              app: foo
+          - image: gcr.io/kpt-fn/set-annotations:v0.1
+            name: set-annotations`[1:],
+		},
+		"add one with existing with comments": {
+			initialMutators: `
+        mutators:
+          - image: gcr.io/kpt-fn/set-labels:v0.1
+            # this is a comment
+            name: set-labels
+            configMap:
+              app: foo
+          - image: gcr.io/kpt-fn/set-annotations:v0.1
+            name: set-annotations`[1:],
+			pvMutators: `
+    mutators:
+      - image: gcr.io/kpt-fn/set-namespace:v0.1
+        name: set-namespace
+        configMap:
+          namespace: my-ns`[1:],
+			expectedErr: "",
+			expectedPrr: prrBase + `
+      pipeline:
+        mutators:
+        - name: PackageVariant.my-pv.set-namespace.0
+          image: gcr.io/kpt-fn/set-namespace:v0.1
+          configMap:
+            namespace: my-ns
+        - image: gcr.io/kpt-fn/set-labels:v0.1
+          # this is a comment
+          name: set-labels
+          configMap:
+            app: foo
+        - image: gcr.io/kpt-fn/set-annotations:v0.1
+          name: set-annotations
+`[1:],
+		},
 	}
 
 	for tn, tc := range testCases {
 		t.Run(tn, func(t *testing.T) {
+			locPrrBase := prrBase
+			if tc.initialMutators != "" {
+				locPrrBase += "      pipeline:\n"
+			}
 			var prr porchapi.PackageRevisionResources
-			require.NoError(t, yaml.Unmarshal([]byte(prrBase+tc.initialMutators), &prr))
+			require.NoError(t, yaml.Unmarshal([]byte(locPrrBase+tc.initialMutators), &prr))
 			var pv api.PackageVariant
 			require.NoError(t, yaml.Unmarshal([]byte(pvBase+tc.pvMutators), &pv))
 
